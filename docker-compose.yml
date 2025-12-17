@@ -1,6 +1,61 @@
 version: '3.8'
 
 services:
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: music_review_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Auth Service Database
+  auth-db:
+    image: postgres:15
+    container_name: auth_service_db
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: authuser
+      POSTGRES_PASSWORD: authpass
+    ports:
+      - "5433:5432"
+    volumes:
+      - auth_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authuser -d auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Reviews Service Database  
+  reviews-db:
+    image: postgres:15
+    container_name: reviews_service_db
+    environment:
+      POSTGRES_DB: reviews_db
+      POSTGRES_USER: reviewsuser
+      POSTGRES_PASSWORD: reviewspass
+    ports:
+      - "5434:5432"
+    volumes:
+      - reviews_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reviewsuser -d reviews_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Legacy database (keeping for migration period)
   db:
     image: postgres:15
     container_name: music_review_db
@@ -25,10 +80,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://musicuser:musicpass@db:5432/music_reviews
       ALEMBIC_DATABASE_URL: postgresql://musicuser:musicpass@db:5432/music_reviews
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672/
     ports:
       - "8000:8000"
     depends_on:
       db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     volumes:
       - .:/app
@@ -38,3 +96,6 @@ services:
 
 volumes:
   postgres_data:
+  auth_postgres_data:
+  reviews_postgres_data:
+  rabbitmq_data:
