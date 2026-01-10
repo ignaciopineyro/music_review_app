@@ -13,7 +13,7 @@ from datetime import datetime
 import aio_pika
 from aio_pika import Message, ExchangeType
 from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel, AbstractQueue
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 logger = logging.getLogger(__name__)
@@ -22,13 +22,12 @@ logger = logging.getLogger(__name__)
 class EventBase(BaseModel):
     """Base class for all events"""
 
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+
     event_id: str
     timestamp: datetime
     service_name: str
     event_type: str
-
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class MessageBroker:
