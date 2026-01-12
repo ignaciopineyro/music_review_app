@@ -8,8 +8,10 @@ from app.exceptions import (
     UserAlreadyExistsError,
     InvalidCredentialsError,
     UserNotFoundError,
+    InvalidRefreshTokenError,
 )
 from app.models.user import User
+from app.models.refreshtoken import RefreshToken
 from sqlalchemy import select
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -269,7 +271,7 @@ class TestUserService:
             select(User).where(User.username == "tokeninactive")
         )
         user = result.scalar_one()
-        setattr(user, 'is_active', False)
+        setattr(user, "is_active", False)
         await db_session.commit()
 
         # Create token for the inactive user
@@ -294,3 +296,93 @@ class TestUserService:
         assert UserAlreadyExistsError.__name__ == "UserAlreadyExistsError"
         assert InvalidCredentialsError.__name__ == "InvalidCredentialsError"
         assert UserNotFoundError.__name__ == "UserNotFoundError"
+
+    @pytest.mark.unit
+    async def test_create_refresh_token_success(self, db_session: AsyncSession):
+        user_data = UserCreate(
+            username="refreshuser",
+            email="refresh@example.com",
+            password="password123",
+        )
+        created_user = await self.user_service.create_user(db_session, user_data)
+
+        refresh_token = await self.user_service.create_refresh_token(
+            db_session, created_user.id
+        )
+
+        assert refresh_token is not None
+        assert len(refresh_token.token) > 0
+        assert refresh_token.is_revoked is False
+
+    @pytest.mark.unit
+    async def test_refresh_access_token_success(self, db_session: AsyncSession):
+        user_data = UserCreate(
+            username="refreshuser2",
+            email="refresh2@example.com",
+            password="password123",
+        )
+        created_user = await self.user_service.create_user(db_session, user_data)
+        refresh_token = await self.user_service.create_refresh_token(
+            db_session, created_user.id
+        )
+
+        token_response = await self.user_service.refresh_access_token(
+            db_session, refresh_token.token
+        )
+
+        assert token_response is not None
+        assert len(token_response.access_token) > 0
+        assert len(token_response.refresh_token) > 0
+        assert token_response.refresh_token != refresh_token.token
+
+    @pytest.mark.unit
+    async def test_refresh_access_token_invalid(self, db_session: AsyncSession):
+        with pytest.raises(InvalidRefreshTokenError):
+            await self.user_service.refresh_access_token(db_session, "invalid_token")
+
+    @pytest.mark.unit
+    async def test_revoke_refresh_token_success(self, db_session: AsyncSession):
+        user_data = UserCreate(
+            username="revokeuser",
+            email="revoke@example.com",
+            password="password123",
+        )
+        created_user = await self.user_service.create_user(db_session, user_data)
+        refresh_token = await self.user_service.create_refresh_token(
+            db_session, created_user.id
+        )
+
+        result = await self.user_service.revoke_refresh_token(
+            db_session, refresh_token.token
+        )
+
+        assert result is True
+
+        result = await db_session.execute(
+            select(RefreshToken).where(RefreshToken.token == refresh_token.token)
+        )
+        revoked_token = result.scalar_one_or_none()
+        assert revoked_token is not None
+        assert revoked_token.is_revoked is True
+
+    @pytest.mark.unit
+    async def test_revoke_all_user_tokens_success(self, db_session: AsyncSession):
+        user_data = UserCreate(
+            username="revokealluser",
+            email="revokeall@example.com",
+            password="password123",
+        )
+        created_user = await self.user_service.create_user(db_session, user_data)
+
+        token1 = await self.user_service.create_refresh_token(
+            db_session, created_user.id
+        )
+        token2 = await self.user_service.create_refresh_token(
+            db_session, created_user.id
+        )
+
+        count = await self.user_service.revoke_all_user_tokens(
+            db_session, created_user.id
+        )
+
+        assert count == 2

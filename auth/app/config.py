@@ -21,6 +21,10 @@ class Settings:
 
         self.jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expire_minutes = int(os.getenv("JWT_EXPIRE_MINUTES", "30"))
+        
+        self.rabbitmq_url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+        self.rabbitmq_exchange_user = os.getenv("RABBITMQ_EXCHANGE_USER", "user.events")
+        self.rabbitmq_exchange_auth = os.getenv("RABBITMQ_EXCHANGE_AUTH", "auth.events")
 
 
 settings = Settings()

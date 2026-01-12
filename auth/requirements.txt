@@ -18,6 +18,12 @@ pydantic[email]==2.5.2
 # Environment variables
 python-dotenv==1.0.0
 
+# Message broker
+aio-pika>=9.0.0
+
+# Shared package (local)
+-e ../shared
+
 # Testing dependencies
 pytest==7.4.3
 pytest-asyncio==0.21.1

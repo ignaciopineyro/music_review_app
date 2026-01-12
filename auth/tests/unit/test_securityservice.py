@@ -164,3 +164,18 @@ class TestSecurityService:
         result = self.security_service.verify_token(None)
 
         assert result is None
+
+    @pytest.mark.unit
+    def test_create_refresh_token_generates_token(self):
+        refresh_token = self.security_service.create_refresh_token()
+
+        assert refresh_token is not None
+        assert len(refresh_token) > 0
+        assert isinstance(refresh_token, str)
+
+    @pytest.mark.unit
+    def test_create_refresh_token_generates_unique_tokens(self):
+        token1 = self.security_service.create_refresh_token()
+        token2 = self.security_service.create_refresh_token()
+
+        assert token1 != token2

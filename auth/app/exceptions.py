@@ -41,6 +41,15 @@ class TokenExpiredError(HTTPException):
         )
 
 
+class InvalidRefreshTokenError(HTTPException):
+    def __init__(self, detail: str = "Invalid or expired refresh token"):
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 class ValidationError(HTTPException):
     def __init__(self, detail: str = "Validation failed"):
         super().__init__(

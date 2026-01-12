@@ -1,13 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+from shared.events import LoginMethod
 from ..db import get_db
-from ..schemas import UserCreate, UserResponse, UserLogin, Token, TokenData
+from ..schemas import (
+    UserCreate,
+    UserResponse,
+    UserLogin,
+    TokenData,
+    TokenResponse,
+    RefreshTokenRequest,
+)
 from ..services.userservice import UserService
+from ..services.eventpublisher import EventPublisher
 from ..exceptions import (
     UserAlreadyExistsError,
     InvalidCredentialsError,
     UserNotFoundError,
+    InvalidRefreshTokenError,
 )
 
 
@@ -15,10 +25,20 @@ router = APIRouter()
 user_service = UserService()
 
 
+def get_event_publisher() -> EventPublisher:
+    from ..main import event_publisher
+
+    return event_publisher
+
+
 @router.post(
     "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
 )
-async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register_user(
+    user_data: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    event_pub: EventPublisher = Depends(get_event_publisher),
+):
     """
     Register a new user.
 
@@ -38,6 +58,9 @@ async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db
     """
     try:
         db_user = await user_service.create_user(db, user_data)
+
+        await event_pub.publish_user_registered(db_user)
+
         return db_user
     except UserAlreadyExistsError as e:
         raise e
@@ -48,19 +71,25 @@ async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db
         )
 
 
-@router.post("/login", response_model=Token, status_code=status.HTTP_200_OK)
-async def login_user(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
+@router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+async def login_user(
+    login_data: UserLogin,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    event_pub: EventPublisher = Depends(get_event_publisher),
+):
     """
-    Authenticate user and return JWT token.
+    Authenticate user and return JWT access token with refresh token.
 
-    Validates user credentials and returns a JWT access token if successful.
+    Validates user credentials and returns both access and refresh tokens if successful.
+    Access tokens expire in 30 minutes, refresh tokens expire in 7 days.
 
     Args:
         login_data: Login credentials (username and password)
         db: Database session
 
     Returns:
-        Token: JWT access token and token type
+        TokenResponse: JWT access token, refresh token, and expiration info
 
     Raises:
         401 Unauthorized: If credentials are invalid or user is inactive
@@ -69,12 +98,20 @@ async def login_user(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
     try:
         user = await user_service.authenticate_user(db, login_data)
 
-        # Create JWT token
+        refresh_token_obj = await user_service.create_refresh_token(db, user.id)
         access_token = user_service.security.create_access_token(
             data={"sub": user.username}
         )
 
-        return Token(access_token=access_token, token_type="bearer")
+        await event_pub.publish_user_authenticated(
+            user=user, method=LoginMethod.EMAIL_PASSWORD, request=request
+        )
+
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token_obj.token,
+            expires_in=1800,
+        )
 
     except InvalidCredentialsError as e:
         raise e
@@ -160,4 +197,42 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get current user",
+        )
+
+
+@router.post("/refresh", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+async def refresh_token(
+    refresh_request: RefreshTokenRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Exchange refresh token for new access and refresh tokens.
+
+    Validates the refresh token and returns new tokens. The old refresh token
+    is automatically revoked for security.
+
+    Args:
+        refresh_request: Request containing the refresh token
+        db: Database session
+
+    Returns:
+        TokenResponse: New access token, refresh token, and expiration info
+
+    Raises:
+        401 Unauthorized: If refresh token is invalid, expired, or revoked
+        422 Unprocessable Entity: If validation fails
+    """
+    try:
+        token_response, user = await user_service.refresh_access_token_with_user(
+            db, refresh_request.refresh_token
+        )
+
+        return token_response
+    except InvalidRefreshTokenError as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed",
         )

@@ -1,3 +1,5 @@
+import secrets
+
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
@@ -35,6 +37,9 @@ class SecurityService:
             to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
         )
         return encoded_jwt
+
+    def create_refresh_token(self) -> str:
+        return secrets.token_urlsafe(32)
 
     def verify_token(self, token: Union[str, None]) -> Optional[str]:
         try:

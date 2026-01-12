@@ -1,13 +1,26 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .routers import auth
+from .services.eventpublisher import EventPublisher
+
+event_publisher = EventPublisher()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await event_publisher.connect()
+    yield
+    await event_publisher.close()
+
 
 app = FastAPI(
     title=settings.app_name,
     version="1.0.0",
     description="Authentication microservice",
     debug=settings.debug,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -17,6 +30,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 

@@ -43,5 +43,22 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshTokenResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    is_revoked: bool
+
+
 class TokenData(BaseModel):
     token: Optional[str] = None
